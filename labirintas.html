@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Labirintas</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <style>
+        body {
+            color: #000;
+            font-family: Monospace;
+            font-size: 13px;
+            text-align: center;
+            font-weight: bold;
+
+            background-color: #fff;
+            margin: 0px;
+            overflow: hidden;
+        }
+
+        #info {
+            color: #000;
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            padding: 50px;
+
+        }
+
+        a {
+            color: green;
+        }
+    </style>
+</head>
+
+<body>
+<div id="container"></div>
+<div id="info">
+</div>
+
+<script src="three.js"></script>
+<script src="TrackballControls.js"></script>
+<script src="Detector.js"></script>
+<script src="stats.min.js"></script>
+<script src="data.js"></script>
+
+<script>
+
+    if (!Detector.webgl) Detector.addGetWebGLMessage();
+    var container, stats;
+    var camera, controls, scene, renderer;
+
+    var scale = 1;
+    var wallThick = 2; // sienu storis
+    var wallHight = 15;
+	
+	var pointLight;
+	var goalGeometry;
+	var goal;
+    var clock;
+    // y - aukstis
+    init();
+	animate(); // rodo kadrus viena po kito
+
+    function init() {
+		// 45 pagal nutylejima visad, 1-10000 matoma nearciau nei 1 ir netoliau nei 10000
+        camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 10000); // kuriame kamera, nes ji tikroviskesne
+        camera.position.z = 50;
+        camera.position.y = 300;
+        camera.lookAt(new THREE.Vector3(0, -1, 0));
+
+        controls = new THREE.TrackballControls(camera);
+        controls.rotateSpeed = 1.0;
+        controls.zoomSpeed = 6.2;
+        controls.panSpeed = 0.8;
+        controls.noZoom = false;
+        controls.noPan = false;
+        controls.staticMoving = true;
+        controls.dynamicDampingFactor = 0.3;
+        controls.keys = [65, 83, 68];
+        controls.addEventListener('change', render);
+
+        // world
+        scene = new THREE.Scene(); // kuriame tuscia scena
+        scene.background = new THREE.Color(0xcccccc);
+//        scene.fog = new THREE.FogExp2(0xcccccc, 0.002);
+
+        var wall = {};
+        var minX = 100;
+        var minY = 100;
+        var maxX = 1;
+        var maxY = 1;
+        var wallMaterial = new THREE.MeshLambertMaterial({color: 0xdddddd, wireframe: false});  
+        var wallMaterial2 = new THREE.MeshLambertMaterial({color: 0xdddddd, wireframe: false});
+		// ieskome maziausiu koordinaciu
+        for (var i = 0; i < data.maze.line.length; i++) {
+            var x1 = data.maze.line[i]["-x1"] - 2;
+            var x2 = data.maze.line[i]["-x2"] - 2;
+            var y1 = data.maze.line[i]["-y1"] - 2;
+            var y2 = data.maze.line[i]["-y2"] - 2;
+            var x = x2 - x1;
+            var y = y2 - y1;
+
+            if (x1 < minX) {
+                minX = x1;
+            }
+            if (x2 > maxX) {
+                maxX = x2;
+            }
+            if (y1 < minY) {
+                minY = y1;
+            }
+            if (y2 > maxY) {
+                maxY = y2;
+            }
+        }
+        for (var i = 0; i < data.maze.line.length; i++) {
+            var x1 = data.maze.line[i]["-x1"] - 2;
+            var x2 = data.maze.line[i]["-x2"] - 2;
+            var y1 = data.maze.line[i]["-y1"] - 2;
+            var y2 = data.maze.line[i]["-y2"] - 2;
+            var x = x2 - x1;
+            var y = y2 - y1;
+            if (y === 0) {
+			// mesh objektu kurimas
+                var geometry = new THREE.BoxGeometry(x, wallHight, wallThick);
+                wall[i] = new THREE.Mesh(geometry, wallMaterial); // sujungiam objekta su medziaga ir atiduodam mesh
+                wall[i].position.set(-maxX / 2 + x1 + x / 2, wallHight / 2, -maxY / 2 + y1 + wallThick / 2);
+                scene.add(wall[i]);
+            }
+            if (x === 0) {
+                var geometry = new THREE.BoxGeometry(wallThick, wallHight, y+wallThick);
+                wall[i] = new THREE.Mesh(geometry, wallMaterial);
+                wall[i].position.set(-maxX / 2 + x1 + wallThick / 2, wallHight / 2, -maxY / 2 + y1 + (y+wallThick) / 2);
+                scene.add(wall[i]);
+            }
+
+        }
+
+        var floor = initFloor(maxX, maxY, 'green');
+        scene.add(floor);
+        
+        var light = new THREE.AmbientLight(0x222222); // visa sviesa, neturinti vietos
+        scene.add(light);
+		
+		var light = new THREE.DirectionalLight('pink');
+        light.position.set(150, 150, 150);
+        scene.add(light);
+
+        var light = new THREE.DirectionalLight(0x002288);
+        light.position.set(155, 155, 155);
+        scene.add(light);
+
+	    // figure
+        goalGeometry = new THREE.OctahedronGeometry(5, 2);
+		goal = new THREE.Mesh(goalGeometry, new THREE.MeshLambertMaterial ({ color: 'white'}));// color: 0x00ff80
+		
+		goal.position.set (10, 10, 10);//(platformWidth/2 + 7, platformHeight + 10, 0);
+		//scene.add( goal );
+		
+		divideGoal ();
+		
+		// floor
+        var floor = initFloor(maxX, maxY, 0xdddddd);
+        scene.add(floor[0]);
+        scene.add(floor[1]);
+
+        // lights
+        var ambientLight = new THREE.AmbientLight(0x333333 , 1); // antras parametras intesyvumas sviesos
+        scene.add(ambientLight);
+		
+	    AddPointLight(10, 8, 10);
+		//AddPointLight(-5, 10, 40);
+		//AddPointLight(5, 5, 40);
+		AddPointLight(0, 8, 10);
+		//AddPointLight(-10, 10, 10)
+		//AddPointLight(-10, 10, 30);
+		AddPointLight(-8, 8, 10);
+		AddPointLight(-8, 8, 20);
+		AddPointLight(-8, 8, 30);
+		AddPointLight(-8, 8, 40);
+		//AddPointLight(-10, 8, 30);
+		//AddPointLight(-10, 8, 40);
+		AddPointLight(-20, 8, 42);
+		AddPointLight(-30, 8, 42);
+	    AddPointLight(-38, 8, 42);
+	    //AddPointLight(-40, 8, 40);
+	    AddPointLight(-40, 8, 50);
+		AddPointLight(-40, 8, 60);
+		AddPointLight(-40, 8, 70);
+		AddPointLight(-40, 8, 80);
+		AddPointLight(-40, 8, 90);
+		AddPointLight(-40, 8, 100);
+		AddPointLight(-40, 8, 110);
+		AddPointLight(-40, 8, 120);
+		AddPointLight(-40, 8, 130);
+		AddPointLight(-40, 8, 140);
+		AddPointLight(-40, 8, 150);
+		AddPointLight(-30, 8, 150);
+		AddPointLight(-20, 8, 150);
+		AddPointLight(-10, 8, 150);
+		AddPointLight(0, 8, 150);
+		AddPointLight(10, 8, 150);
+		
+        // renderer
+        renderer = new THREE.WebGLRenderer({antialias: true});
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      
+        container = document.getElementById('container');
+        container.appendChild(renderer.domElement);
+        
+        		
+        stats = new Stats();
+		// Align top-left 
+		stats.domElement.style.position = 'absolute';
+		stats.domElement.style.top = '0px';
+        container.appendChild(stats.dom);
+
+        window.addEventListener('resize', onWindowResize, false);
+        render();
+    }
+
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        controls.handleResize();
+        render();
+    }
+
+   var delta = 0; // padidinti sprogimo greiti.
+    function animate() {
+        requestAnimationFrame(animate);
+		if((camera.position.z < 50)){
+			moveParticles(delta);
+			delta += 0.01; // sprogimo greitis
+         }
+        render();
+        controls.update();
+	
+    }
+	
+	function AddPointLight(x, y, z){
+		pointLight = new THREE.PointLight(0xFF9700, 4, 12);
+		pointLight.position.set(x, y,z);
+		pointLight.castShadow = true;
+		scene.add(pointLight);
+		
+		sphere = new THREE.SphereGeometry(1);
+        lightball = new THREE.Mesh(sphere, new THREE.MeshBasicMaterial({color: 0xFF9700}));
+        lightball.position.set(x, y, z);
+        scene.add(lightball);
+		
+	}
+    function render() {
+	   console.log(camera.position);
+       renderer.render(scene, camera);
+       stats.update();
+    }
+
+    function initFloor(maxX, maxY, color) {
+        var floor = new THREE.Mesh(
+            new THREE.PlaneGeometry(maxX, maxY+wallThick*2, maxX, maxY),
+            new THREE.MeshLambertMaterial({color: 'green'})
+        );
+
+        floor.position.set(0, 0, 0);
+        floor.rotation.x = -Math.PI / 2;
+        return floor
+    }
+	
+	function divideGoal() {
+	  var vertices = goalGeometry.vertices;
+	  var faces = goalGeometry.faces;
+	  var i = 0;
+
+	  goalParticles = [];
+
+	  faces.forEach(face => {
+		var geometry = new THREE.Geometry();
+		var material = new THREE.MeshLambertMaterial({
+		  color:0xffe6e6,
+		  //side:THREE.DoubleSide
+		});
+
+		geometry.vertices.push(vertices[face.a]);
+		geometry.vertices.push(vertices[face.b])
+		geometry.vertices.push(vertices[face.c])
+
+		geometry.faces.push(new THREE.Face3(0, 1, 2));
+		geometry.computeFaceNormals();
+		geometry.computeVertexNormals();
+		mesh = new THREE.Mesh(geometry, material);
+		mesh.position.x = goal.position.x;
+		mesh.position.y = goal.position.y;
+		mesh.position.z = goal.position.z;
+		scene.add(mesh);
+		i++;
+
+		goalParticles.push(mesh)
+	  });
+	}
+	
+	function moveParticles(delta) {
+	  var rotationStep = Math.PI / goalParticles.length;
+	  var a = new THREE.Vector3(goal.position.x, goal.position.y, goal.position.z);
+	  goalParticles.forEach((particle, i) => {
+	  
+		restricted = false;
+		if (!restricted) {
+			var axis = new THREE.Vector3( Math.random(), Math.random(), Math.random() );
+			var axis2 = new THREE.Vector3(-Math.random(),-Math.random(),-Math.random() );
+		    particle.translateOnAxis(axis.add(axis2.add(particle.geometry.faces[0].normal)), Math.random() * delta * 10);  // delta - greitis
+			particle.rotateOnAxis (particle.geometry.faces[0].normal, Math.random()/5);
+		}
+	  });
+	}
+</script>
+</body>
+</html>
